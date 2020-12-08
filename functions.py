@@ -54,6 +54,7 @@ def preprocessing(df):
         
     @Author : Hatim EL MALKI
     """
+    print('################################# Starting Preprocessing #################################')
     cat_col = df.select_dtypes(include=['object']).columns # get categorical columns 
     num_col = [x for x in df.columns if x not in cat_col] # get the numerical columns 
     label_col = df.columns[-1] # get the labels column 
@@ -79,7 +80,7 @@ def preprocessing(df):
     new_df = pd.get_dummies(df) # Convert categorical variable except the labels 
     new_df[label_col] = label # Add the encoded labels column 
     
-    
+    print('Preprocessing Done')
     return new_df
 
 
@@ -92,13 +93,14 @@ def visualize_data(df):
     
     @Author : Hamid MASSAOUD
     """
+    print('################################# Visualizing Data #################################')
     num_col = df.select_dtypes(include=['float64']).columns # get Numerical columns 
     if 'id' in num_col : 
         df = df.drop(['id'], axis='columns') 
-    fig, axes = plt.subplots(nrows=int(len(num_col)/2), ncols=int(len(num_col)/2), figsize=(20,10))
+    fig, axes = plt.subplots(nrows=int(len(num_col)/2), ncols=len(num_col)-1, figsize=(20,10))
     fig.tight_layout()
 
-    plots = [(i, j) for i in range(len(num_col)) for j in range(len(num_col)) if i!=j]
+    plots = [(i, j) for i in range(len(num_col)) for j in range(len(num_col)) if i<j]
     colors = ['g', 'y']
     labels = ['0', '1']
 
@@ -110,7 +112,7 @@ def visualize_data(df):
             ax.set(xlabel=x, ylabel=y)
 
     fig.legend(labels=labels, loc=3, bbox_to_anchor=(1.0,0.85))
-    fig.tight_layout()
+    #fig.tight_layout()
     plt.show()
 
 
@@ -119,30 +121,40 @@ def visualize_data(df):
 def data_correlation(df):
     """
     Compare the correlation between features and remove one of two features 
-    that have a correlation higher than 0.9
+    that have a correlation higher than 0.7
     
     @Author : Hamid MASSAOUD
     """
+    print('################################# Starting Bruteforce Feature Selection #################################')
     corr_matrix = df.corr()
-    plt.figure(figsize=(20,10))
-    sns.heatmap(corr_matrix,annot=True, cmap="YlGnBu")
+    """plt.figure(figsize=(20,10))
+    sns.heatmap(corr_matrix,annot=True, cmap="YlGnBu")"""
+    mask = np.zeros_like(corr_matrix, dtype=np.bool)
+    mask[np.triu_indices_from(mask)] = True
+
+    plt.figure(figsize=(20,20))
+    cmap = sns.diverging_palette(180, 20, as_cmap=True)
+    sns.heatmap(corr_matrix, mask=mask, cmap=cmap, vmax=1, vmin =-1, center=0,
+            square=True, linewidths=.5, cbar_kws={"shrink": .5}, annot=True)
     plt.title('Correlation heatmap for the DataSet')
     plt.show()
     
+    #plt.show()
+    
     columns = np.full((corr_matrix.shape[0],), True, dtype=bool)
     for i in range(corr_matrix.shape[0]):
-        for j in range(i+1, corr_matrix.shape[0]):
-            if abs(corr_matrix.iloc[i,j]) >= 0.9:
+        for j in range(i+1, corr_matrix.shape[0]-1):
+            if abs(corr_matrix.iloc[i,j]) >= 0.7:
                 if columns[j]:
                     columns[j] = False
     selected_columns = df.columns[columns]
+    return df[selected_columns]
     
-    
-
+    print('Bruteforce Feature Selection Done')
 
 
 #Splitting the data and applying PCA
-def split_data(df, pca_bool = True):
+def split_data(df, pca = True):
     """
     Takes as argument the dataset and a boolean to specify whether to apply the PCA or not
     Returns the training set and the test set
@@ -152,7 +164,7 @@ def split_data(df, pca_bool = True):
     X = df.iloc[:, :-1].values # get the features 
     labels = df.iloc[:,-1].values # get the labels   
     
-    if pca_bool : 
+    if pca : 
         
         #Getting the number of component  
         cov_matrix = np.cov(X) # Computing Covariance of features 
@@ -169,8 +181,9 @@ def split_data(df, pca_bool = True):
         pca = PCA(n_components=num+1) # Apply PCA 
         pca.fit(X) # fit PCA
         X = pca.transform(X) # Transform X
-
-    X_train, X_test, y_train, y_test = train_test_split(X, labels, test_size=0.33) # Split dataSet
+    else : 
+        X = data_correlation(df).iloc[:,:-1].values
+    X_train, X_test, y_train, y_test = train_test_split(X, labels, test_size=0.33, random_state=1) # Split dataSet
     return X_train, X_test, y_train, y_test
 
 #Model Selection & Training :
@@ -209,7 +222,7 @@ def select_train_model(X_train, y_train, scoring_met, n_folds=10):
             
     ]
         
-    kf = KFold(shuffle=True, n_splits=n_folds)
+    kf = KFold(shuffle=True, n_splits=n_folds, random_state=1)
     grid_search = GridSearchCV(pipe, param_grid, scoring=scoring_met, n_jobs = -1, cv = kf)
     grid_search.fit(X_train, y_train)
     print(grid_search.best_params_)
@@ -217,11 +230,15 @@ def select_train_model(X_train, y_train, scoring_met, n_folds=10):
 
 
 
-#Testing the chosen model:
-def test_model(X_train, X_test, y_train, y_test, scoring_met, n_folds=10):
+#Apply the chosen model:
+def apply_model(dataset, scoring_met, n_folds=10, pca = True):
     """
 	@Author : Hamid MASSAOUD
     """
+    df = load_data(dataset)
+    df = preprocessing(df)
+    visualize_data(df)
+    X_train, X_test, y_train, y_test = split_data(df, pca)
     print('################################# Best Model Chosen by GridSearch #################################')
     model = select_train_model(X_train,y_train, scoring_met, n_folds)
     y_pred = model.predict(X_test)
